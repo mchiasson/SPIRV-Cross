@@ -152,6 +152,10 @@ static const uint32_t kPushConstDescSet = ~(0u);
 // element to indicate the bindings for the push constants.
 static const uint32_t kPushConstBinding = 0;
 
+// Special constant used in a MSLResourceBinding binding
+// element to indicate the buffer binding for swizzle buffers.
+static const uint32_t kSwizzleBufferBinding = ~(1u);
+
 static const uint32_t kMaxArgumentBuffers = 8;
 
 // Decompiles SPIR-V to Metal Shading Language
