@@ -154,10 +154,6 @@ static const uint32_t kPushConstBinding = 0;
 
 static const uint32_t kMaxArgumentBuffers = 8;
 
-// The current version of the aux buffer structure. It must be incremented any time a
-// new field is added to the aux buffer.
-#define SPIRV_CROSS_MSL_AUX_BUFFER_STRUCT_VERSION 1
-
 // Decompiles SPIR-V to Metal Shading Language
 class CompilerMSL : public CompilerGLSL
 {
@@ -174,7 +170,7 @@ public:
 		Platform platform = macOS;
 		uint32_t msl_version = make_msl_version(1, 2);
 		uint32_t texel_buffer_texture_width = 4096; // Width of 2D Metal textures used as 1D texel buffers
-		uint32_t aux_buffer_index = 30;
+		uint32_t swizzle_buffer_index = 30;
 		uint32_t indirect_params_buffer_index = 29;
 		uint32_t shader_output_buffer_index = 28;
 		uint32_t shader_patch_output_buffer_index = 27;
@@ -243,10 +239,10 @@ public:
 	}
 
 	// Provide feedback to calling API to allow it to pass an auxiliary
-	// buffer if the shader needs it.
-	bool needs_aux_buffer() const
+	// swizzle buffer if the shader needs it.
+	bool needs_swizzle_buffer() const
 	{
-		return used_aux_buffer;
+		return used_swizzle_buffer;
 	}
 
 	// Provide feedback to calling API to allow it to pass an output
@@ -477,7 +473,7 @@ protected:
 	uint32_t builtin_base_instance_id = 0;
 	uint32_t builtin_invocation_id_id = 0;
 	uint32_t builtin_primitive_id_id = 0;
-	uint32_t aux_buffer_id = 0;
+	uint32_t swizzle_buffer_id = 0;
 
 	void bitcast_to_builtin_store(uint32_t target_id, std::string &expr, const SPIRType &expr_type) override;
 	void bitcast_from_builtin_load(uint32_t source_id, std::string &expr, const SPIRType &expr_type) override;
@@ -515,8 +511,8 @@ protected:
 	bool needs_instance_idx_arg = false;
 	bool is_rasterization_disabled = false;
 	bool capture_output_to_buffer = false;
-	bool needs_aux_buffer_def = false;
-	bool used_aux_buffer = false;
+	bool needs_swizzle_buffer_def = false;
+	bool used_swizzle_buffer = false;
 	bool added_builtin_tess_level = false;
 	std::string qual_pos_var_name;
 	std::string stage_in_var_name = "in";

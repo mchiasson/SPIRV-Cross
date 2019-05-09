@@ -5,11 +5,6 @@
 
 using namespace metal;
 
-struct spvAux
-{
-    uint swizzleConst[1];
-};
-
 struct main0_out
 {
     float4 FragColor [[color(0)]];
@@ -150,10 +145,10 @@ float4 sample_single_in_func(thread const texture2d<float> s, thread const sampl
     return spvTextureSwizzle(s.sample(sSmplr, vUV), sSwzl);
 }
 
-fragment main0_out main0(main0_in in [[stage_in]], constant spvAux& spvAuxBuffer [[buffer(30)]], array<texture2d<float>, 4> uSampler [[texture(0)]], array<sampler, 4> uSamplerSmplr [[sampler(0)]])
+fragment main0_out main0(main0_in in [[stage_in]], constant uint* spvSwizzleConstants [[buffer(30)]], array<texture2d<float>, 4> uSampler [[texture(0)]], array<sampler, 4> uSamplerSmplr [[sampler(0)]])
 {
     main0_out out = {};
-    constant uint32_t* uSamplerSwzl = &spvAuxBuffer.swizzleConst[0];
+    constant uint32_t* uSamplerSwzl = &spvSwizzleConstants[0];
     out.FragColor = sample_in_func(uSampler, uSamplerSmplr, uSamplerSwzl, in.vUV);
     out.FragColor += sample_single_in_func(uSampler[1], uSamplerSmplr[1], uSamplerSwzl[1], in.vUV);
     return out;

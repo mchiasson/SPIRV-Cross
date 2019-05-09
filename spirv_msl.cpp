@@ -28,8 +28,6 @@ using namespace std;
 static const uint32_t k_unknown_location = ~0u;
 static const uint32_t k_unknown_component = ~0u;
 
-static const uint32_t k_aux_mbr_idx_swizzle_const = 0u;
-
 CompilerMSL::CompilerMSL(std::vector<uint32_t> spirv_)
     : CompilerGLSL(move(spirv_))
 {
@@ -313,14 +311,13 @@ void CompilerMSL::build_implicit_builtins()
 		}
 	}
 
-	if (needs_aux_buffer_def)
+	if (needs_swizzle_buffer_def)
 	{
-		uint32_t offset = ir.increase_bound_by(5);
+		uint32_t offset = ir.increase_bound_by(4);
 		uint32_t type_id = offset;
-		uint32_t type_arr_id = offset + 1;
-		uint32_t struct_id = offset + 2;
-		uint32_t struct_ptr_id = offset + 3;
-		uint32_t var_id = offset + 4;
+		uint32_t type_ptr_id = offset + 1;
+		uint32_t type_ptr_ptr_id = offset + 2;
+		uint32_t var_id = offset + 3;
 
 		// Create a buffer to hold extra data, including the swizzle constants.
 		SPIRType uint_type;
@@ -328,36 +325,25 @@ void CompilerMSL::build_implicit_builtins()
 		uint_type.width = 32;
 		set<SPIRType>(type_id, uint_type);
 
-		SPIRType uint_type_arr = uint_type;
-		uint_type_arr.array.push_back(0);
-		uint_type_arr.array_size_literal.push_back(true);
-		uint_type_arr.parent_type = type_id;
-		set<SPIRType>(type_arr_id, uint_type_arr);
-		set_decoration(type_arr_id, DecorationArrayStride, 4);
+		SPIRType uint_type_pointer = uint_type;
+		uint_type_pointer.pointer = true;
+		uint_type_pointer.pointer_depth = 1;
+		uint_type_pointer.parent_type = type_id;
+		uint_type_pointer.storage = StorageClassUniform;
+		set<SPIRType>(type_ptr_id, uint_type_pointer);
+		set_decoration(type_ptr_id, DecorationArrayStride, 4);
 
-		SPIRType struct_type;
-		struct_type.basetype = SPIRType::Struct;
-		struct_type.member_types.push_back(type_arr_id);
-		auto &type = set<SPIRType>(struct_id, struct_type);
-		type.self = struct_id;
-		set_decoration(struct_id, DecorationBlock);
-		set_name(struct_id, "spvAux");
-		set_member_name(struct_id, k_aux_mbr_idx_swizzle_const, "swizzleConst");
-		set_member_decoration(struct_id, k_aux_mbr_idx_swizzle_const, DecorationOffset, 0);
+		SPIRType uint_type_pointer2 = uint_type_pointer;
+		uint_type_pointer2.pointer_depth++;
+		uint_type_pointer2.parent_type = type_ptr_id;
+		set<SPIRType>(type_ptr_ptr_id, uint_type_pointer2);
 
-		SPIRType struct_type_ptr = struct_type;
-		struct_type_ptr.pointer = true;
-		struct_type_ptr.parent_type = struct_id;
-		struct_type_ptr.storage = StorageClassUniform;
-		auto &ptr_type = set<SPIRType>(struct_ptr_id, struct_type_ptr);
-		ptr_type.self = struct_id;
-
-		set<SPIRVariable>(var_id, struct_ptr_id, StorageClassUniform);
-		set_name(var_id, "spvAuxBuffer");
+		set<SPIRVariable>(var_id, type_ptr_ptr_id, StorageClassUniformConstant);
+		set_name(var_id, "spvSwizzleConstants");
 		// This should never match anything.
 		set_decoration(var_id, DecorationDescriptorSet, 0xFFFFFFFE);
-		set_decoration(var_id, DecorationBinding, msl_options.aux_buffer_index);
-		aux_buffer_id = var_id;
+		set_decoration(var_id, DecorationBinding, msl_options.swizzle_buffer_index);
+		swizzle_buffer_id = var_id;
 	}
 }
 
@@ -602,8 +588,8 @@ string CompilerMSL::compile()
 	fixup_image_load_store_access();
 
 	set_enabled_interface_variables(get_active_interface_variables());
-	if (aux_buffer_id)
-		active_interface_variables.insert(aux_buffer_id);
+	if (swizzle_buffer_id)
+		active_interface_variables.insert(swizzle_buffer_id);
 
 	// Preprocess OpCodes to extract the need to output additional header content
 	preprocess_op_codes();
@@ -4763,7 +4749,7 @@ string CompilerMSL::to_function_args(uint32_t img, const SPIRType &imgtype, bool
 		if (!is_gather)
 			farg_str += ")";
 		farg_str += ", " + to_swizzle_expression(img);
-		used_aux_buffer = true;
+		used_swizzle_buffer = true;
 	}
 
 	*p_forward = forward;
@@ -5535,7 +5521,8 @@ string CompilerMSL::get_type_address_space(const SPIRType &type, uint32_t id)
 			else
 				return "constant";
 		}
-		break;
+		else
+			return "constant";
 
 	case StorageClassFunction:
 	case StorageClassGeneric:
@@ -5815,7 +5802,10 @@ void CompilerMSL::entry_point_args_discrete_descriptors(string &ep_args)
 			ep_args += " [[texture(" + convert_to_string(r.index) + ")]]";
 			break;
 		default:
-			SPIRV_CROSS_THROW("Unexpected resource type");
+			if (!ep_args.empty())
+				ep_args += ", ";
+			ep_args += type_to_glsl(type, var_id) + " " + r.name;
+			ep_args += " [[buffer(" + convert_to_string(r.index) + ")]]";
 			break;
 		}
 	}
@@ -5851,14 +5841,12 @@ void CompilerMSL::fix_up_shader_inputs_outputs()
 			{
 				auto &entry_func = this->get<SPIRFunction>(ir.default_entry_point);
 				entry_func.fixup_hooks_in.push_back([this, &type, &var, var_id]() {
-					auto &aux_type = expression_type(aux_buffer_id);
 					bool is_array_type = !type.array.empty();
 
 					// If we have an array of images, we need to be able to index into it, so take a pointer instead.
 					statement("constant uint32_t", is_array_type ? "* " : "& ", to_swizzle_expression(var_id),
-					          is_array_type ? " = &" : " = ", to_name(aux_buffer_id), ".",
-					          to_member_name(aux_type, k_aux_mbr_idx_swizzle_const), "[",
-					          convert_to_string(get_metal_resource_index(var, SPIRType::Image)), "];");
+					          is_array_type ? " = &" : " = ", to_name(swizzle_buffer_id),
+					          "[", convert_to_string(get_metal_resource_index(var, SPIRType::Image)), "];");
 				});
 			}
 		}
@@ -7206,7 +7194,7 @@ bool CompilerMSL::SampledImageScanner::handle(spv::Op opcode, const uint32_t *ar
 	case OpImageDrefGather:
 		compiler.has_sampled_images =
 		    compiler.has_sampled_images || compiler.is_sampled_image_type(compiler.expression_type(args[2]));
-		compiler.needs_aux_buffer_def = compiler.needs_aux_buffer_def || compiler.has_sampled_images;
+		compiler.needs_swizzle_buffer_def = compiler.needs_swizzle_buffer_def || compiler.has_sampled_images;
 		break;
 	default:
 		break;
