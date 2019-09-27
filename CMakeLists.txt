@@ -12,9 +12,17 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-cmake_minimum_required(VERSION 2.8)
+cmake_minimum_required(VERSION 3.1)
 set(CMAKE_CXX_STANDARD 11)
-project(SPIRV-Cross LANGUAGES CXX C)
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+include(GNUInstallDirs)
+include(cmake/Hunter/HunterGate.cmake)
+HunterGate(
+    URL "https://github.com/cpp-pm/hunter/archive/v0.23.216.tar.gz"
+    SHA1 "a492a1879bee60c29f7af17ef56b45f0d7766241"
+    LOCAL
+)
+project(SPIRV-Cross LANGUAGES CXX C VERSION 2019.09.06)
 enable_testing()
 
 option(SPIRV_CROSS_EXCEPTIONS_TO_ASSERTIONS "Instead of throwing exceptions assert" OFF)
@@ -143,14 +151,12 @@ macro(spirv_cross_add_library name config_name library_type)
 		endif()
 	endif()
 	install(TARGETS ${name}
-			EXPORT ${config_name}Config
-			RUNTIME DESTINATION bin
-			LIBRARY DESTINATION lib
-			ARCHIVE DESTINATION lib
-			PUBLIC_HEADER DESTINATION include/spirv_cross)
-	install(FILES ${hdrs} DESTINATION include/spirv_cross)
-	install(EXPORT ${config_name}Config DESTINATION share/${config_name}/cmake)
-	export(TARGETS ${name} FILE ${config_name}Config.cmake)
+            EXPORT SPIRV-CrossTargets
+            RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+            LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+            PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/spirv_cross)
+    install(FILES ${hdrs} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/spirv_cross)
 endmacro()
 
 set(spirv-cross-core-sources
@@ -411,19 +417,13 @@ if (SPIRV_CROSS_CLI)
 		#  - Update the reference files
 		#  - Get cycle counts from malisc
 		#  - Keep failing outputs
+        hunter_add_package(mattc_glslang)
+        find_package(glslang CONFIG REQUIRED)
 		find_package(PythonInterp)
-		find_program(spirv-cross-glslang NAMES glslangValidator
-				PATHS ${CMAKE_CURRENT_SOURCE_DIR}/external/glslang-build/output/bin
-				NO_DEFAULT_PATH)
-		find_program(spirv-cross-spirv-as NAMES spirv-as
-				PATHS ${CMAKE_CURRENT_SOURCE_DIR}/external/spirv-tools-build/output/bin
-				NO_DEFAULT_PATH)
-		find_program(spirv-cross-spirv-val NAMES spirv-val
-				PATHS ${CMAKE_CURRENT_SOURCE_DIR}/external/spirv-tools-build/output/bin
-				NO_DEFAULT_PATH)
-		find_program(spirv-cross-spirv-opt NAMES spirv-opt
-				PATHS ${CMAKE_CURRENT_SOURCE_DIR}/external/spirv-tools-build/output/bin
-				NO_DEFAULT_PATH)
+        set(spirv-cross-glslang glslang::glslangValidator)
+        set(spirv-cross-spirv-as SPIRV-Tools::spirv-as)
+        set(spirv-cross-spirv-val SPIRV-Tools::spirv-val)
+        set(spirv-cross-spirv-opt SPIRV-Tools::spirv-opt)
 
 		if ((${spirv-cross-glslang} MATCHES "NOTFOUND") OR (${spirv-cross-spirv-as} MATCHES "NOTFOUND") OR (${spirv-cross-spirv-val} MATCHES "NOTFOUND") OR (${spirv-cross-spirv-opt} MATCHES "NOTFOUND"))
 			set(SPIRV_CROSS_ENABLE_TESTS OFF)
@@ -546,3 +546,23 @@ if (SPIRV_CROSS_CLI)
 		endif()
 	endif()
 endif()
+
+set(generated_dir "${CMAKE_CURRENT_BINARY_DIR}/generated")
+set(config_install_dir "${CMAKE_INSTALL_LIBDIR}/cmake/SPIRV-Cross")
+set(version_config "${generated_dir}/SPIRV-CrossConfigVersion.cmake")
+set(project_config "${generated_dir}/SPIRV-CrossConfig.cmake")
+
+include(CMakePackageConfigHelpers)
+
+write_basic_package_version_file(${version_config}
+    VERSION ${PACKAGE_VERSION}
+    COMPATIBILITY SameMajorVersion)
+
+configure_package_config_file(cmake/SPIRV-CrossConfig.cmake.in ${project_config}
+    INSTALL_DESTINATION "${config_install_dir}")
+
+install(FILES ${project_config}
+              ${version_config}
+        DESTINATION "${config_install_dir}")
+
+install(EXPORT SPIRV-CrossTargets NAMESPACE SPIRV-Cross:: DESTINATION ${config_install_dir})
