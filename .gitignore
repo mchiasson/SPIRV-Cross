@@ -16,5 +16,6 @@
 /external
 .vs/
 *.vcxproj.user
+CMakeLists.txt.user
 
 !CMakeLists.txt
